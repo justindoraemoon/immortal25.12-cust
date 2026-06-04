@@ -39,7 +39,7 @@ jobs:
 
       - name: Build firmware
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq qemu-utils
+          sudo apt-get update -qq && sudo apt-get install -y -qq qemu-utils genisoimage
           cd immortalwrt-imagebuilder-25.12.0-x86-64.Linux-x86_64
           make image \
             PACKAGES="base-files luci luci-app-openclash luci-app-mosdns mosdns luci-app-ttyd kmod-br-netfilter hostapd dnsmasq iwinfo wpad-basic-openssl iptables-nft \
@@ -47,7 +47,7 @@ jobs:
               -kmod-usb-storage -kmod-usb-storage-uas -kmod-fs-vfat -kmod-fs-exfat \
               -kmod-fs-ext4 -kmod-fs-ntfs3" \
             FILES="./files" \
-            ROOTFS_PARTSIZE="960" \
+            ROOTFS_PARTSIZE="5120" \
             DISABLED_SERVICES=""
 
       - name: Upload artifact
