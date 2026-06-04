@@ -1,0 +1,71 @@
+name: Build ImmortalWrt 25.12 5-NIC Custom
+
+on:
+  workflow_dispatch: # 允许你手动点击触发
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Space cleanup & Environment Setup
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          sudo apt-get update
+          sudo apt-get install -y binfmt-support qemu-user-static xz-utils git
+
+      - name: Download Official ImageBuilder
+        run: |
+          # 拉取官方最新 25.12.0 x86_64 固件生成器
+          wget https://downloads.immortalwrt.org/releases/25.12.0/targets/x86/64/immortalwrt-imagebuilder-25.12.0-x86-64.tar.xz
+          tar -xJf immortalwrt-imagebuilder-*.tar.xz
+          mv immortalwrt-imagebuilder-25.12.0-x86-64 ib && cd ib
+
+      - name: Pre-download Third-party APKs (25.12 Adapted)
+        run: |
+          cd ib
+          mkdir -p packages
+          
+          # 抓取适配 25.12 apk 架构的 OpenClash 和 MosDNS 稳定包
+          wget -P packages/ https://github.com/vernesong/OpenClash/releases/download/v0.46.06-beta/luci-app-openclash_0.46.06-beta_all.apk || true
+          wget -P packages/ https://github.com/sbwml/luci-app-mosdns/releases/download/v5.3.1/luci-app-mosdns_5.3.1_all.apk || true
+
+      - name: Inject 5-NIC Network Settings & Default IP
+        run: |
+          cd ib
+          mkdir -p files/etc/uci-defaults
+          
+          # 创建首次开机自动初始化脚本
+          cat << 'EOF' > files/etc/uci-defaults/99-custom-settings
+          #!/bin/sh
+          
+          # 1. 设置 LAN 口 IP 为 192.168.5.1
+          uci set network.lan.ipaddr='192.168.5.1'
+          
+          # 2. 重新定义 5 网卡映射：
+          # 将 eth0 (ESXi管理共用口), eth1, eth2, eth3 全部桥接到 LAN 中
+          uci set network.lan.ports='eth0 eth1 eth2 eth3'
+          
+          # 将 eth4 独立设置为 WAN 口
+          uci set network.wan.device='eth4'
+          
+          # 3. 允许本地未签名第三方软件包（规避 MosDNS 等插件的签名校验报错）
+          sed -i 's/option check_signature.*/option check_signature 0/g' /etc/apk/apk.conf 2>/dev/null || true
+          
+          uci commit network
+          exit 0
+          EOF
+          chmod +x files/etc/uci-defaults/99-custom-settings
+
+      - name: Compile Custom VMDK Image
+        run: |
+          cd ib
+          # 核心插件清单：OpenClash、MosDNS、网页终端、官方内核加速以及 ESXi 必备的驱动组件
+          make image PROFILE="generic" FILES="files" PACKAGES="luci-app-openclash luci-app-mosdns luci-app-ttyd kmod-ipt-offload iptables-mod-tproxy curl ca-bundle ca-certificates kmod-fs-ext4 kmod-util-losetup"
+
+      - name: Upload Firmware to Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ImmortalWrt_25.12_5NIC_192.168.5.1
+          path: ib/bin/targets/x86/64/*combined-efi.vmdk
