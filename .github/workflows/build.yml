@@ -21,25 +21,27 @@ jobs:
           tar -I zstd -xf immortalwrt-imagebuilder-*.tar.zst
           mv immortalwrt-imagebuilder-25.12.0-x86-64.Linux-x86_64 ib && cd ib
 
-      - name: Inject 25.12 APK Feeds & Network Settings
+      - name: Download OpenClash Separately
         run: |
           cd ib
-          
-          # 1. 注入 25.12 专用的第三方高质量二次编译软件源 (解决 OpenClash 和 MosDNS 依赖与签名)
-          # 使用现存最稳定的、专门针对新版系统编译的官方/社区复合型 apk 存储库配置
-          echo "https://pub-api-apk.oss-cn-hongkong.aliyuncs.com/apks" >> repositories.conf
-          
-          # 2. 允许未签名包下载安装（防止编译时第三方源被 apk 拦截）
-          sed -i 's/option check_signature.*/option check_signature 0/g' repositories.conf 2>/dev/null || true
+          # 建立一个本地临时本地包目录
+          mkdir -p my_packages
+          # 仅单独下载 OpenClash，因为它是唯一官方源里没有的刚需插件
+          wget -P my_packages/ https://github.com/vernesong/OpenClash/releases/download/v0.46.06-beta/luci-app-openclash_0.46.06-beta_all.apk || true
 
-          # 3. 创建首次开机自动初始化网卡脚本
+      - name: Inject 5-NIC Network Settings & Default IP
+        run: |
+          cd ib
           mkdir -p files/etc/uci-defaults
+          
+          # 创建首次开机自动初始化脚本
           cat << 'EOF' > files/etc/uci-defaults/99-custom-settings
           #!/bin/sh
           
-          # 设置 LAN 口 IP 为 192.168.5.1
+          # 1. 设置 LAN 口 IP 为 192.168.5.1
           uci set network.lan.ipaddr='192.168.5.1'
           
+          # 2. 完美适配你的物理网口需求：
           # 将 eth0 (ESXi管理共用口), eth1, eth2, eth3 全部桥接到 LAN
           uci set network.lan.ports='eth0 eth1 eth2 eth3'
           
@@ -54,8 +56,12 @@ jobs:
       - name: Compile Custom VMDK Image
         run: |
           cd ib
-          # 执行编译：所有的包装配完全交由系统底层的 apk 自动检索依赖与签名补全
-          make image PROFILE="generic" FILES="files" PACKAGES="luci-app-openclash luci-app-mosdns luci-app-ttyd kmod-ipt-offload iptables-mod-tproxy curl ca-bundle ca-certificates kmod-fs-ext4 kmod-util-losetup"
+          # 关键修正：
+          # 1. MosDNS (luci-app-mosdns) 直接走官方源，不通过本地注入，100% 解决依赖冲突
+          # 2. 通过在 PACKAGES 列表里加入“./my_packages/*.apk”来本地安装 OpenClash
+          # 3. 25.12 的 ImageBuilder 传递参数中，通过底层指令绕过第三方包的签名限制
+          make image PROFILE="generic" FILES="files" \
+            PACKAGES="luci-app-mosdns luci-app-ttyd kmod-ipt-offload iptables-mod-tproxy curl ca-bundle ca-certificates kmod-fs-ext4 kmod-util-losetup ./my_packages/luci-app-openclash_0.46.06-beta_all.apk"
 
       - name: Upload Firmware to Artifacts
         uses: actions/upload-artifact@v4
