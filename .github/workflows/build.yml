@@ -1,4 +1,4 @@
-name: Build ImmortalWrt 25.12 5-NIC Custom
+name: Build ImmortalWrt 25.12
 
 on:
   workflow_dispatch:
@@ -9,14 +9,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Environment Setup
-        env:
-          DEBIAN_FRONTEND: noninteractive
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
-          sudo apt-get update
-          sudo apt-get install -y binfmt-support qemu-user-static xz-utils zstd git
-
       - name: Download ImageBuilder
         run: |
           wget https://downloads.immortalwrt.org/releases/25.12.0/targets/x86/64/immortalwrt-imagebuilder-25.12.0-x86-64.Linux-x86_64.tar.zst
@@ -24,50 +16,35 @@ jobs:
           cd immortalwrt-imagebuilder-25.12.0-x86-64.Linux-x86_64
           mkdir -p packages files
 
-      - name: Download luci-app-mosdns Full Dependencies Pack
+      - name: Download luci-app-mosdns
         run: |
           cd immortalwrt-imagebuilder-25.12.0-x86-64.Linux-x86_64
-          # 使用竞品提供的全家桶包，完美闭环 25.12 的 APK 依赖
           wget https://github.com/sbwml/luci-app-mosdns/releases/download/v5.3.4-r5/x86_64-openwrt-25.12.tar.gz
           tar xzf x86_64-openwrt-25.12.tar.gz -C packages/
           rm x86_64-openwrt-25.12.tar.gz
+          echo "=== packages/ contents ==="
+          ls -la packages/
+          ls -la packages/*.apk 2>/dev/null || echo "NO APK FILES FOUND"
 
-      - name: Inject 5-NIC Network Settings & Default IP (192.168.5.1)
+      - name: Copy custom files (if any)
         run: |
-          cd immortalwrt-imagebuilder-25.12.0-x86-64.Linux-x86_64
-          mkdir -p files/etc/uci-defaults
-          
-          # 核心网络注入：eth0、1、2、3 全桥接作为 LAN（和 ESXi 管理口共用），eth4 为外网 WAN
-          cat << 'EOF' > files/etc/uci-defaults/99-custom-settings
-          #!/bin/sh
-          uci set network.lan.ipaddr='192.168.5.1'
-          uci set network.lan.ports='eth0 eth1 eth2 eth3'
-          uci set network.wan.device='eth4'
-          uci commit network
-          exit 0
-          EOF
-          chmod +x files/etc/uci-defaults/99-custom-settings
-
-      - name: Copy user custom files (If exists in repo)
-        run: |
-          if [ -d "files" ]; then
-            cp -r files/* immortalwrt-imagebuilder-25.12.0-x86-64.Linux-x86_64/files/ || true
+          if [ -d files ]; then
+            cp -r files/* immortalwrt-imagebuilder-25.12.0-x86-64.Linux-x86_64/files/
+          else
+            echo "No custom files directory found, skipping"
           fi
 
       - name: Build firmware
         run: |
           cd immortalwrt-imagebuilder-25.12.0-x86-64.Linux-x86_64
-          # 执行打包，保留基本组件，剔除不需要的 USB 和旧文件系统驱动
-          # 在前面加入限制，允许打包未签名的 mosdns 和 openclash 离线全家桶包
-          export APK_FLAGS="--allow-untrusted"
           make image \
-            PROFILE="generic" \
-            PACKAGES="base-files luci luci-app-openclash luci-app-mosdns mosdns luci-app-ttyd kmod-br-netfilter hostapd dnsmasq iwinfo wpad-basic-openssl iptables-nft kmod-ipt-offload iptables-mod-tproxy \
+            PACKAGES="base-files luci luci-app-openclash luci-app-mosdns mosdns luci-app-ttyd kmod-br-netfilter hostapd dnsmasq iwinfo wpad-basic-openssl iptables-nft \
               -dnsmasq -kmod-usb-core -kmod-usb2 -kmod-usb3 -kmod-usb-ohci -kmod-usb-uhci \
               -kmod-usb-storage -kmod-usb-storage-uas -kmod-fs-vfat -kmod-fs-exfat \
               -kmod-fs-ext4 -kmod-fs-ntfs3" \
-            FILES="files" \
-            ROOTFS_PARTSIZE="960"
+            FILES="./files" \
+            ROOTFS_PARTSIZE="960" \
+            DISABLED_SERVICES=""
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
