@@ -20,18 +20,14 @@ jobs:
         run: |
           cd immortalwrt-imagebuilder-25.12.0-x86-64.Linux-x86_64
           wget https://github.com/sbwml/luci-app-mosdns/releases/download/v5.3.4-r5/x86_64-openwrt-25.12.tar.gz
-          tar xzf x86_64-openwrt-25.12.tar.gz -C packages/
+          tar xzf x86_64-openwrt-25.12.tar.gz -C packages/ --strip-components=1
           rm x86_64-openwrt-25.12.tar.gz
-          echo "=== packages/ contents ==="
           ls -la packages/
-          ls -la packages/*.apk 2>/dev/null || echo "NO APK FILES FOUND"
 
       - name: Copy custom files (if any)
         run: |
           if [ -d files ]; then
             cp -r files/* immortalwrt-imagebuilder-25.12.0-x86-64.Linux-x86_64/files/
-          else
-            echo "No custom files directory found, skipping"
           fi
 
       - name: Build firmware
