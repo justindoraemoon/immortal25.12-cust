@@ -11,10 +11,10 @@ jobs:
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/opt/ghc
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
           sudo apt-get update
-          # 安装 25.12 编译所需的标准环境（引入用于生成本地apk索引的工具）
-          sudo apt-get install -y binfmt-support qemu-user-static xz-utils zstd git abuild squid
+          # 核心修正：必须安装 alpine-pkg-glibc 或 apk-tools（Ubuntu 下为 apk-tools），否则编译机根本没有 apk index 命令！
+          sudo apt-get install -y binfmt-support qemu-user-static xz-utils zstd git apk-tools
 
       - name: Download Official ImageBuilder
         run: |
@@ -22,20 +22,19 @@ jobs:
           tar -I zstd -xf immortalwrt-imagebuilder-*.tar.zst
           mv immortalwrt-imagebuilder-25.12.0-x86-64.Linux-x86_64 ib && cd ib
 
-      - name: Pre-download Third-party APKs & Generate Index
+      - name: Pre-download Third-party APKs & Build Local Index
         run: |
           cd ib
-          # 25.12 的本地外部扩展包必须严格放在自带的 packages 目录下
+          # 25.12 官方 ImageBuilder 唯一合法的本地追加目录就是 packages/
           mkdir -p packages
           
-          # 下载 OpenClash
+          # 下载 OpenClash 和 MosDNS
           wget -P packages/ https://github.com/vernesong/OpenClash/releases/download/v0.46.06-beta/luci-app-openclash_0.46.06-beta_all.apk || true
-          
-          # 下载 MosDNS 及其核心程序
           wget -P packages/ https://github.com/sbwml/luci-app-mosdns/releases/download/v5.3.1/luci-app-mosdns_5.3.1_all.apk || true
           wget -P packages/ https://github.com/sbwml/luci-app-mosdns/releases/download/v5.3.1/mosdns_5.3.1_x86_64.apk || true
 
-          # 【核心修正】在本地为这些第三方包创建 apk 专用的 APKINDEX 索引
+          # 【25.12 apk 绝杀核心】：在 packages 目录下建立真正的 APKINDEX 并用 gzip 压缩
+          # 只有这样，底层 ImageBuilder 在扫描自带的 packages 目录时，才能读出这两个插件！
           cd packages
           apk index -o APKINDEX.tar.gz *.apk || true
           cd ..
@@ -47,11 +46,11 @@ jobs:
           
           cat << 'EOF' > files/etc/uci-defaults/99-custom-settings
           #!/bin/sh
-          # 设置 LAN 口 IP 为 192.168.5.1
+          # 1. 设置 LAN 口 IP 为 192.168.5.1
           uci set network.lan.ipaddr='192.168.5.1'
-          # 将 eth0 (ESXi管理口), eth1, eth2, eth3 全部桥接到 LAN
+          # 2. eth0(管理共用), eth1, eth2, eth3 桥接到 LAN
           uci set network.lan.ports='eth0 eth1 eth2 eth3'
-          # 将 eth4 独立设置为外部 WAN 口
+          # 3. 将 eth4 独立设置为外部 WAN 口
           uci set network.wan.device='eth4'
           uci commit network
           exit 0
@@ -61,12 +60,11 @@ jobs:
       - name: Compile Custom VMDK Image
         run: |
           cd ib
-          # 【核心修正】
-          # 1. 传递 APK_FLAGS="--allow-untrusted" 强制跳过签名限制
-          # 2. 直接在 PACKAGES 写入插件名，由于我们建立了本地 APKINDEX，系统会自动把它们当作标准包打包，并自动去官方补全依赖
-          export APK_FLAGS="--allow-untrusted"
+          # 【25.12 终极参数对齐】：
+          # 通过传递 APK_FLAGS="--allow-untrusted" 强制命令底层编译跳过数字签名校验
           make image PROFILE="generic" FILES="files" \
-            PACKAGES="luci-app-openclash luci-app-mosdns mosdns luci-app-ttyd kmod-ipt-offload iptables-mod-tproxy curl ca-bundle ca-certificates kmod-fs-ext4 kmod-util-losetup"
+            APK_FLAGS="--allow-untrusted" \
+            PACKAGES="luci-app-ttyd kmod-ipt-offload iptables-mod-tproxy curl ca-bundle ca-certificates kmod-fs-ext4 kmod-util-losetup luci-app-openclash luci-app-mosdns mosdns"
 
       - name: Upload Firmware to Artifacts
         uses: actions/upload-artifact@v4
