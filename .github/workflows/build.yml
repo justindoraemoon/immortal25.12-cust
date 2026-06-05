@@ -30,8 +30,9 @@ jobs:
           cat << 'EOF' > files/etc/uci-defaults/99-custom-settings
           #!/bin/sh
           uci set network.lan.ipaddr='192.168.5.1'
-          uci set network.lan.ports='eth0 eth1 eth2 eth3'
-          uci set network.wan.device='eth4'
+          uci set network.lan.ifname='eth0 eth1 eth2 eth3'
+          uci set network.wan.ifname='eth4'
+          uci set network.wan.proto='dhcp'
           uci commit network
           exit 0
           EOF
@@ -47,7 +48,7 @@ jobs:
               -kmod-usb-storage -kmod-usb-storage-uas -kmod-fs-vfat -kmod-fs-exfat \
               -kmod-fs-ext4 -kmod-fs-ntfs3" \
             FILES="./files" \
-            ROOTFS_PARTSIZE="5120" \
+            ROOTFS_PARTSIZE="2048" \
             DISABLED_SERVICES=""
 
       - name: Upload artifact
