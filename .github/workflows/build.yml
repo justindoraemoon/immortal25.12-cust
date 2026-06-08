@@ -48,7 +48,7 @@ jobs:
               -kmod-usb-storage -kmod-usb-storage-uas -kmod-fs-vfat -kmod-fs-exfat \
               -kmod-fs-ext4 -kmod-fs-ntfs3" \
             FILES="./files" \
-            ROOTFS_PARTSIZE="2048" \
+            ROOTFS_PARTSIZE="1024" \
             DISABLED_SERVICES=""
 
       - name: Upload artifact
